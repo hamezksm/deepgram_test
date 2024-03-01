@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:sound_stream/sound_stream.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-const serverUrl = '<Deepgram WebSocket URL>';
-final apiKey = dotenv.env['DEEPGRAM_API_KEY'];
 
 Future main() async {
   await dotenv.load(fileName: ".env");
@@ -38,12 +36,16 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final serverUrl =
+      'wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&language=en-GB';
+  final apiKey = dotenv.env['DEEPGRAM_API_KEY'];
+
   String myText = "To start transcribing your voice, press start.";
 
   final RecorderStream _recorder = RecorderStream();
 
-  late StreamSubscription _recorderStatus;
-  late StreamSubscription _audioStream;
+  StreamSubscription<dynamic>? _recorderStatus;
+  StreamSubscription<Uint8List>? _audioStream;
 
   late IOWebSocketChannel channel;
 
@@ -56,19 +58,29 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
-    _recorderStatus.cancel();
-    _audioStream.cancel();
+    _recorderStatus!.cancel();
+    _audioStream!.cancel();
     channel.sink.close();
 
     super.dispose();
   }
 
   Future<void> _initStream() async {
+    if (_recorderStatus != null) {
+      _recorderStatus!.cancel();
+    }
+    if (_audioStream != null) {
+      _audioStream!.cancel();
+    }
     channel = IOWebSocketChannel.connect(Uri.parse(serverUrl),
         headers: {'Authorization': 'Token $apiKey'});
 
     channel.stream.listen((event) async {
       final parsedJson = jsonDecode(event);
+      print(parsedJson['channel']);
+      print(parsedJson['channel']['alternatives']);
+      print(parsedJson['channel']['alternatives'][0]);
+      print(parsedJson['channel']['alternatives'][0]['transcript']);
 
       updateText(parsedJson['channel']['alternatives'][0]['transcript']);
     });
@@ -91,15 +103,15 @@ class _MyHomePageState extends State<MyHomePage> {
   void _startRecord() async {
     resetText();
     _initStream();
-
     await _recorder.start();
-
     setState(() {});
   }
 
   void _stopRecord() async {
     await _recorder.stop();
-
+    _recorderStatus!.cancel();
+    _audioStream!.cancel();
+    channel.sink.close();
     setState(() {});
   }
 
